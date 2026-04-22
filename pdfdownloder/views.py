@@ -16,10 +16,43 @@ from django.core.mail import EmailMessage
 from django.conf import settings
 from .models import PDFReport as pdfreport
 from sib_api_v3_sdk.rest import ApiException
+from reportlab.pdfgen import canvas
+from reportlab.lib.pagesizes import letter
+from reportlab.lib.utils import ImageReader
+from reportlab.lib import colors
+import textwrap
+import base64
 
 
 
+def http_response(status_code, message=None, data=None, errors=None):
+    payload = {}
+    if data is not None:
+        payload['data'] = data
+    if errors is not None:
+        payload['errors'] = errors
 
+    status_map = {
+        200: ('OK',                    status.HTTP_200_OK),
+        201: ('Created',               status.HTTP_201_CREATED),
+        204: ('No Content',            status.HTTP_204_NO_CONTENT),
+        400: ('Bad Request',           status.HTTP_400_BAD_REQUEST),
+        401: ('Unauthorized',          status.HTTP_401_UNAUTHORIZED),
+        403: ('Forbidden',             status.HTTP_403_FORBIDDEN),
+        404: ('Not Found',             status.HTTP_404_NOT_FOUND),
+        405: ('Method Not Allowed',    status.HTTP_405_METHOD_NOT_ALLOWED),
+        409: ('Conflict',              status.HTTP_409_CONFLICT),
+        422: ('Unprocessable Entity',  status.HTTP_422_UNPROCESSABLE_ENTITY),
+        429: ('Too Many Requests',     status.HTTP_429_TOO_MANY_REQUESTS),
+        500: ('Internal Server Error', status.HTTP_500_INTERNAL_SERVER_ERROR),
+        502: ('Bad Gateway',           status.HTTP_502_BAD_GATEWAY),
+        503: ('Service Unavailable',   status.HTTP_503_SERVICE_UNAVAILABLE),
+    }
+
+    label, drf_status = status_map.get(status_code, (str(status_code), status_code))
+    payload['status'] = status_code
+    payload['message'] = message or label
+    return Response(payload, status=drf_status)
 
 
 class userviewset(viewsets.ModelViewSet):
@@ -36,7 +69,7 @@ class userviewset(viewsets.ModelViewSet):
         response.data['next'] = '/verify-otp/'
         return response
 
-    def perform_create(self, serializer):
+    def emailchecker(self, serializer):
         email = self.request.data.get('email')
         if User.objects.filter(email=email).exists():
             raise ValidationError({'email': 'A user with this email already exists.'})
@@ -44,14 +77,14 @@ class userviewset(viewsets.ModelViewSet):
         user.save()
 
     @action(detail=False, methods=['get', 'patch'], permission_classes=[IsAuthenticated])
-    def me(self, request):
+    def userinfo(self, request):
         if request.method == 'GET':
-            return Response(UserSerializer(request.user, context={'request': request}).data)
+            return http_response(200, data=UserSerializer(request.user, context={'request': request}).data)
         serializer = UserSerializer(request.user, data=request.data, partial=True, context={'request': request})
         if serializer.is_valid():
             serializer.save()
-            return Response(serializer.data)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+            return http_response(200, data=serializer.data)
+        return http_response(400, errors=serializer.errors)
 
 
 class loginviewset(viewsets.ViewSet):
@@ -65,16 +98,14 @@ class loginviewset(viewsets.ViewSet):
         user = User.objects.filter(email=email).first()
 
         if user and user.check_password(password):
-
                 login(request, user)
                 refresh = RefreshToken.for_user(user)
-                return Response({
+                return http_response(200, data={
                     'access': str(refresh.access_token),
                     'refresh': str(refresh),
-                }, status=status.HTTP_200_OK)
-
+                })
         else:
-            return Response({'detail': 'Invalid email or password.'}, status=status.HTTP_401_UNAUTHORIZED)
+            return http_response(401, message='Invalid email or password.')
         
 
 
@@ -87,11 +118,11 @@ class PDFReportView(viewsets.ViewSet):
     def list(self, request):
         pdf_report = pdfreport.objects.filter(user=request.user).first()
         if not pdf_report:
-            return Response({'error': 'No report found for this user.'}, status=status.HTTP_404_NOT_FOUND)
+            return http_response(404, message='No report found for this user.')
 
         serializer = PDFReportSerializer(pdf_report)
-        return Response(serializer.data)
-    
+        return http_response(200, data=serializer.data)
+
     def create(self, request):
         pdf_report = pdfreport.objects.filter(user=request.user).first()
         if not pdf_report:
@@ -99,44 +130,41 @@ class PDFReportView(viewsets.ViewSet):
         serializer = PDFReportSerializer(pdf_report, data=request.data, partial=True)
         if serializer.is_valid():
             serializer.save()
-            return Response(serializer.data, status=status.HTTP_200_OK)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+            return http_response(200, data=serializer.data)
+        return http_response(400, errors=serializer.errors)
+
     def update(self, request, pk=None):
         pdf_report = pdfreport.objects.filter(user=request.user).first()
         if not pdf_report:
-            return Response({'error': 'No report found for this user.'}, status=status.HTTP_404_NOT_FOUND)
+            return http_response(404, message='No report found for this user.')
 
         serializer = PDFReportSerializer(pdf_report, data=request.data, partial=True)
         if serializer.is_valid():
             serializer.save()
-            return Response(serializer.data, status=status.HTTP_200_OK)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+            return http_response(200, data=serializer.data)
+        return http_response(400, errors=serializer.errors)
+
     def destroy(self, request, pk=None):
         pdf_report = pdfreport.objects.filter(user=request.user).first()
         if not pdf_report:
-            return Response({'error': 'No report found for this user.'}, status=status.HTTP_404_NOT_FOUND)
+            return http_response(404, message='No report found for this user.')
 
         pdf_report.delete()
-        return Response(status=status.HTTP_204_NO_CONTENT)
+        return http_response(204)
 
 
 class GeneratePDF(viewsets.ViewSet):
     permission_classes = [IsAuthenticated]
 
     def list(self, request):
-        from reportlab.pdfgen import canvas
-        from reportlab.lib.pagesizes import letter
-        from reportlab.lib.utils import ImageReader
-        from reportlab.lib import colors
-        import textwrap
-        import base64
+       
 
         pdf_report = pdfreport.objects.filter(user=request.user).first()
         if not pdf_report:
-            return Response({'error': 'No report found for this user.'}, status=status.HTTP_404_NOT_FOUND)
+            return http_response(404, message='No report found for this user.')
 
         if not pdf_report.name and not pdf_report.job_title:
-            return Response({'error': 'No report found for this user.'}, status=status.HTTP_404_NOT_FOUND)
+            return http_response(404, message='No report found for this user.')
 
         CARD_W, CARD_H = 450, 270
         buffer = io.BytesIO()
@@ -296,7 +324,7 @@ class GeneratePDF(viewsets.ViewSet):
             api_instance.send_transac_email(send_smtp_email)
         except ApiException as e:
             print(f"Email error: {e}")
-            return Response({'error': f'Failed to send email: {e}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return http_response(500, message=f'Failed to send email: {e}')
 
         buffer.seek(0)
         return FileResponse(buffer, as_attachment=True, filename='idcard.pdf', content_type='application/pdf')
@@ -307,13 +335,15 @@ class SignatureUploadView(viewsets.ViewSet):
     def create(self, request):
         pdf_report = pdfreport.objects.filter(user=request.user).first()
         if not pdf_report:
-            return Response({'error': 'No report found for this user.'}, status=status.HTTP_404_NOT_FOUND)
+            return http_response(404, message='No report found for this user.')
 
         signature_file = request.FILES.get('signature')
         if not signature_file:
-            return Response({'error': 'No signature file provided.'}, status=status.HTTP_400_BAD_REQUEST)
+            return http_response(400, message='No signature file provided.')
 
         pdf_report.signature = signature_file
         pdf_report.save()
 
-        return Response({'message': 'Signature uploaded successfully.'}, status=status.HTTP_200_OK)
+        return http_response(200, message='Signature uploaded successfully.')
+
+
