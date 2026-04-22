@@ -1,0 +1,45 @@
+{% extends "rest_framework/api.html" %}
+
+{% block style %}
+    {{ block.super }}
+    {# Manually load the Signature Pad CSS #}
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/signature_pad@4.0.0/dist/signature_pad.css">
+    <style>
+        .signature-wrapper { 
+            border: 1px solid #ccc; 
+            background: #fff; 
+            width: 400px; height: 200px; 
+        }
+        canvas { width: 100%; height: 100%; cursor: crosshair; }
+    </style>
+{% endblock %}
+
+{% block script %}
+    {{ block.super }}
+    {# Manually load the Signature Pad JS #}
+    <script src="https://cdn.jsdelivr.net/npm/signature_pad@4.0.0/dist/signature_pad.umd.min.js"></script>
+    <script>
+        document.addEventListener("DOMContentLoaded", function() {
+            // Find the Signature input field (adjust the name if it's different)
+            const inputField = document.querySelector('input[name="signature"]');
+            if (inputField) {
+                // Create a canvas element dynamically
+                const wrapper = document.createElement('div');
+                wrapper.className = 'signature-wrapper';
+                const canvas = document.createElement('canvas');
+                wrapper.appendChild(canvas);
+                inputField.parentNode.insertBefore(wrapper, inputField);
+                
+                // Hide the text input so you only see the canvas
+                inputField.type = 'hidden';
+
+                const signaturePad = new SignaturePad(canvas);
+
+                // Update the hidden input whenever the user stops drawing
+                signaturePad.addEventListener("endStroke", () => {
+                    inputField.value = signaturePad.toDataURL();
+                });
+            }
+        });
+    </script>
+{% endblock %}
