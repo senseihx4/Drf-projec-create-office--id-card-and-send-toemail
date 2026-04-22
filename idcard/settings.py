@@ -160,6 +160,7 @@ LOGGING = {
 load_dotenv(os.path.join(BASE_DIR, ".env"))
 BREVO_API_KEY = os.environ.get("BREVO_API_KEY", "")
 
+
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 BREVO_SENDER_EMAIL = os.environ.get("BREVO_SENDER_EMAIL", "kartik7087@gmail.com")
