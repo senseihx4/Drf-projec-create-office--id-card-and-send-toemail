@@ -64,28 +64,19 @@ class userviewset(viewsets.ModelViewSet):
         if self.action == 'create':
             return [AllowAny()]
         return [IsAdminUser()]
+    def create(self, request, *args, **kwargs): 
+        return super().create(request, *args, **kwargs)
 
-    def create(self, request, *args, **kwargs):
-        response = super().create(request, *args, **kwargs)
-        response.data['next'] = '/verify-otp/'
-        return response
+    def list(self, request, *args, **kwargs):
+        return super().list(request, *args, **kwargs)   
+    def retrieve(self, request, *args, **kwargs):
+        return super().retrieve(request, *args, **kwargs)
+    def update(self, request, *args, **kwargs):
+        return super().update(request, *args, **kwargs)
+    def destroy(self, request, *args, **kwargs):
+        return super().destroy(request, *args, **kwargs)
+    
 
-    def emailchecker(self, serializer):
-        email = self.request.data.get('email')
-        if User.objects.filter(email=email).exists():
-            raise ValidationError({'email': 'A user with this email already exists.'})
-        user = serializer.save()
-        user.save()
-
-    @action(detail=False, methods=['get', 'patch'], permission_classes=[IsAuthenticated])
-    def userinfo(self, request):
-        if request.method == 'GET':
-            return http_response(200, data=UserSerializer(request.user, context={'request': request}).data)
-        serializer = UserSerializer(request.user, data=request.data, partial=True, context={'request': request})
-        if serializer.is_valid():
-            serializer.save()
-            return http_response(200, data=serializer.data)
-        return http_response(400, errors=serializer.errors)
 
 
 class loginviewset(viewsets.ViewSet):
