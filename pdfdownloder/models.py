@@ -34,6 +34,16 @@ class User(AbstractBaseUser, PermissionsMixin):
         return self.email
     
 
+class PendingUser(models.Model):
+    email = models.EmailField(unique=True)
+    password_hash = models.CharField(max_length=255)
+    stripe_session_id = models.CharField(max_length=255, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"PendingUser: {self.email}"
+
+
 class PDFReport(models.Model):
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='reports')
     created_at = models.DateTimeField(auto_now_add=True)

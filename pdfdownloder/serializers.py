@@ -4,8 +4,9 @@ from .models import User, PDFReport
 
 class UserSerializer(serializers.ModelSerializer):
     user_type_display = serializers.CharField(source='get_user_type_display', read_only=True)
+    email = serializers.EmailField(required=True)
     password = serializers.CharField(write_only=True, required=True)
-    username = serializers.CharField(required=False, allow_blank=True)
+    
 
     class Meta:
         model = User
@@ -19,6 +20,25 @@ class UserSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         password = validated_data.pop('password')
         user = super().create(validated_data)
+        user.set_password(password)
+        user.save()
+        return user
+    def validate_email(self, value):
+        if User.objects.filter(email=value).exists():
+            raise serializers.ValidationError("Email already exists")
+        return value
+
+class signupSerializer(serializers.ModelSerializer):
+    email = serializers.EmailField(required=True)
+    password = serializers.CharField(write_only=True, required=True)
+
+    class Meta:
+        model = User
+        fields = ['email', 'password', 'username', 'profile_picture', ]
+
+    def create(self, validated_data):
+        password = validated_data.pop('password')
+        user = User.objects.create_user(**validated_data)
         user.set_password(password)
         user.save()
         return user

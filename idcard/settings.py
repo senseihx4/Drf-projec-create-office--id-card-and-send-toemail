@@ -42,6 +42,7 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'pdfdownloder',
     'rest_framework',
+    'payments',
 ]
 
 MIDDLEWARE = [
@@ -165,3 +166,7 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 BREVO_SENDER_EMAIL = os.environ.get("BREVO_SENDER_EMAIL", "kartik7087@gmail.com")
 BREVO_SENDER_NAME = os.environ.get("BREVO_SENDER_NAME", "Fairy Club")
+
+
+STRIPE_PUBLIC_KEY = os.environ.get("STRIPE_PUBLIC_KEY")
+STRIPE_SECRET_KEY = os.environ.get("STRIPE_SECRET_KEY")

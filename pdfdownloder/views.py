@@ -5,9 +5,11 @@ from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.decorators import action
 from django.contrib.auth import login
+from django.contrib.auth.hashers import make_password
 import sib_api_v3_sdk
-from .models import User
-from .serializers import UserSerializer, PDFReportSerializer
+import stripe
+from .models import User, PendingUser, PDFReport
+from .serializers import UserSerializer, PDFReportSerializer , signupSerializer
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework.permissions import IsAuthenticated
 import io
@@ -22,6 +24,11 @@ from reportlab.lib.utils import ImageReader
 from reportlab.lib import colors
 import textwrap
 import base64
+from django.utils.decorators import method_decorator
+from django.views.decorators.csrf import csrf_exempt
+
+
+stripe.api_key = settings.STRIPE_SECRET_KEY
 
 
 
@@ -60,28 +67,109 @@ class userviewset(viewsets.ModelViewSet):
     queryset = User.objects.all()
     serializer_class = UserSerializer
 
-    def get_permissions(self):
-        if self.action == 'create':
-            return [AllowAny()]
-        return [IsAdminUser()]
-    def create(self, request, *args, **kwargs): 
-        return super().create(request, *args, **kwargs)
 
+        
     def list(self, request, *args, **kwargs):
-        return super().list(request, *args, **kwargs)   
-    def retrieve(self, request, *args, **kwargs):
-        return super().retrieve(request, *args, **kwargs)
+        if not request.user.is_staff:
+            return http_response(403, message='You do not have permission to view this resource.')
+        return super().list(request, *args, **kwargs)
+    def create(self, request, *args, **kwargs):
+            return super().create(request, *args, **kwargs)
+
+
+          
     def update(self, request, *args, **kwargs):
         return super().update(request, *args, **kwargs)
     def destroy(self, request, *args, **kwargs):
         return super().destroy(request, *args, **kwargs)
     
 
+class signupviewset(viewsets.ViewSet):
+    permission_classes = [AllowAny]
+    serializer_class = signupSerializer
+    authentication_classes = []
+
+    def create(self, request):
+        if User.objects.filter(email=request.data.get('email')).exists():
+            return http_response(409, message='An account with this email already exists.')
+        serializer = signupSerializer(data=request.data)
+        if not serializer.is_valid():
+            return http_response(400, errors=serializer.errors)
+
+        email = serializer.validated_data['email']
+        password = serializer.validated_data['password']
+
+        pending_user, _ = PendingUser.objects.update_or_create(
+            email=email,
+            defaults={'password_hash': make_password(password)},
+        )
+
+        checkout_session = stripe.checkout.Session.create(
+            payment_method_types=['card'],
+            line_items=[{
+                'price_data': {
+                    'currency': 'usd',
+                    'product_data': {'name': 'ID Card Membership'},
+                    'unit_amount': 1000,  # $10.00
+                },
+                'quantity': 1,
+            }],
+            mode='payment',
+            metadata={'pending_user_id': pending_user.id},
+            success_url=(
+                getattr(settings, 'FRONTEND_URL', request.build_absolute_uri('/'))
+                + 'api/signup/complete/?session_id={CHECKOUT_SESSION_ID}'
+            ),
+            cancel_url=(
+                getattr(settings, 'FRONTEND_URL', request.build_absolute_uri('/'))
+                + 'api/signup/cancel/'
+            ),
+        )
+
+        pending_user.stripe_session_id = checkout_session.id
+        pending_user.save(update_fields=['stripe_session_id'])
+
+        return http_response(200, data={'checkout_url': checkout_session.url})
+
+    @action(detail=False, methods=['get', 'post'], url_path='complete')
+    def complete(self, request):
+        session_id = request.data.get('session_id') or request.query_params.get('session_id')
+        if not session_id:
+            return http_response(400, message='session_id is required.')
+
+        checkout_session = stripe.checkout.Session.retrieve(session_id)
+        if checkout_session.payment_status != 'paid':
+            return http_response(402, message='Payment not completed.')
+
+        try:
+            pending_user_id = checkout_session.metadata['pending_user_id']
+            pending_user = PendingUser.objects.get(id=pending_user_id)
+        except (KeyError, PendingUser.DoesNotExist):
+            return http_response(404, message='No pending registration found for this session.')
+
+        if User.objects.filter(email=pending_user.email).exists():
+            return http_response(409, message='Account already created for this email.')
+
+        user = User.objects.create(
+            email=pending_user.email,
+            password=pending_user.password_hash, 
+        )
+        pending_user.delete()
+
+        refresh = RefreshToken.for_user(user)
+        return http_response(201, data={
+            'access': str(refresh.access_token),
+            'refresh': str(refresh),
+        })
+    
+
 
 
 class loginviewset(viewsets.ViewSet):
     queryset = User.objects.all()
+    permission_classes = [AllowAny]
     serializer_class = UserSerializer
+    authentication_classes = []
 
     def create(self, request):
         email = request.data.get('email')
