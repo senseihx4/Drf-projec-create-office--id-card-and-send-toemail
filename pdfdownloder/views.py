@@ -1,5 +1,5 @@
 from rest_framework import viewsets
-from rest_framework.permissions import AllowAny, IsAdminUser
+from rest_framework.permissions import AllowAny, BasePermission, IsAdminUser
 from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 from rest_framework import status
@@ -8,8 +8,8 @@ from django.contrib.auth import login
 from django.contrib.auth.hashers import make_password
 import sib_api_v3_sdk
 import stripe
-from .models import User, PendingUser, PDFReport
-from .serializers import UserSerializer, PDFReportSerializer , signupSerializer
+from .models import User, PendingUser, PDFReport , Article
+from .serializers import LoginSerializer, UserSerializer, PDFReportSerializer , signupSerializer , ArticleSerializer
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework.permissions import IsAuthenticated
 import io
@@ -66,6 +66,7 @@ def http_response(status_code, message=None, data=None, errors=None):
 class userviewset(viewsets.ModelViewSet):
     queryset = User.objects.all()
     serializer_class = UserSerializer
+    
 
 
         
@@ -168,7 +169,7 @@ class signupviewset(viewsets.ViewSet):
 class loginviewset(viewsets.ViewSet):
     queryset = User.objects.all()
     permission_classes = [AllowAny]
-    serializer_class = UserSerializer
+    serializer_class = LoginSerializer
     authentication_classes = []
 
     def create(self, request):
@@ -290,7 +291,9 @@ class GeneratePDF(viewsets.ViewSet):
 
         if request.user.profile_picture:
             try:
-                img = ImageReader(request.user.profile_picture.path)
+                import urllib.request
+                with urllib.request.urlopen(request.user.profile_picture.url) as resp:
+                    img = ImageReader(io.BytesIO(resp.read()))
                 p.drawImage(img, photo_x, photo_y, width=photo_w, height=photo_h,
                             preserveAspectRatio=True, mask='auto')
             except Exception:
@@ -427,4 +430,24 @@ class SignatureUploadView(viewsets.ViewSet):
         return http_response(200, message='Signature uploaded successfully.')
 
 
-#
+
+
+
+class IsAuthorOrReadOnly(BasePermission):
+    def has_object_permission(self, request, view, obj):
+        if request.method in ['GET', 'HEAD', 'OPTIONS']:
+            return True
+        return obj.author == request.user
+
+
+class ArticleViewSet(viewsets.ModelViewSet):
+    serializer_class = ArticleSerializer
+    permission_classes = [IsAuthenticated, IsAuthorOrReadOnly]
+    queryset = Article.objects.all().order_by('-created_at')
+
+    filterset_fields = ['is_premium', 'tags']
+    search_fields = ['title', 'content', 'tags']
+    ordering_fields = ['created_at', 'price']
+
+    def perform_create(self, serializer):
+        serializer.save(author=self.request.user)

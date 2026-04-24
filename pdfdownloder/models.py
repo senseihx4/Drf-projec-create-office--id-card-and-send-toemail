@@ -18,6 +18,7 @@ class User(AbstractBaseUser, PermissionsMixin):
      )
     username = models.CharField(max_length=100, null=True, blank=True)
     email = models.EmailField(unique=True)
+   
 
     verification_token = models.CharField(max_length=100, null=True, blank=True)
 
@@ -56,3 +57,15 @@ class PDFReport(models.Model):
    
     def __str__(self):
         return f"Report by {self.user.email} at {self.created_at}"
+
+
+class Article(models.Model):
+    author      = models.ForeignKey(User, on_delete=models.CASCADE)
+    title       = models.CharField(max_length=300)
+    content     = models.TextField()
+    tags        = models.CharField(max_length=200, blank=True)  # comma separated
+    price       = models.DecimalField(max_digits=6, decimal_places=2, default=0.00)
+    is_premium  = models.BooleanField(default=False)
+    read_count  = models.IntegerField(default=0)
+    created_at  = models.DateTimeField(auto_now_add=True)
+    updated_at  = models.DateTimeField(auto_now=True)

@@ -1,11 +1,11 @@
 from rest_framework import serializers
-from .models import User, PDFReport
+from .models import User, PDFReport, Article
 
 
 class UserSerializer(serializers.ModelSerializer):
     user_type_display = serializers.CharField(source='get_user_type_display', read_only=True)
     email = serializers.EmailField(required=True)
-    password = serializers.CharField(write_only=True, required=True)
+    password = serializers.CharField(write_only=True, required=True )
     
 
     class Meta:
@@ -27,6 +27,11 @@ class UserSerializer(serializers.ModelSerializer):
         if User.objects.filter(email=value).exists():
             raise serializers.ValidationError("Email already exists")
         return value
+    
+
+class LoginSerializer(serializers.Serializer):
+    email = serializers.EmailField(required=True)
+    password = serializers.CharField(write_only=True, required=True)
 
 class signupSerializer(serializers.ModelSerializer):
     email = serializers.EmailField(required=True)
@@ -62,3 +67,49 @@ class PDFReportSerializer(serializers.ModelSerializer):
             'blood_group', 'bio', 'joined_date', 'signature', 'profile_picture'
         ]
         read_only_fields = ['id', 'created_at', 'user', 'profile_picture']
+
+
+class AuthorSerializer(serializers.ModelSerializer):
+    class Meta:
+        model  = User
+        fields = ['id', 'email']
+
+class ArticleSerializer(serializers.ModelSerializer):
+    title = serializers.CharField(max_length=300, allow_blank=False ,required =True)
+    content = serializers.CharField(allow_blank=False, required=True)
+    price = serializers.DecimalField(min_value=0,  required=False , max_digits=6, decimal_places=2, default=0.00)
+    read_count = serializers.IntegerField(read_only=True)
+    created_at = serializers.DateTimeField(read_only=True)
+    author  = AuthorSerializer(read_only=True)       
+    preview = serializers.SerializerMethodField()    
+
+    class Meta:
+        model = Article
+        fields = ['id', 'title', 'content', 'price', 'is_premium', 'read_count', 'created_at', 'author', 'preview']
+
+
+    def validate_title(self, value):
+        if not value.strip():
+            raise serializers.ValidationError("Title cannot be empty.")
+        return value
+    def validate_content(self, value):
+        if len(value) < 100:
+            raise serializers.ValidationError("Content must be at least 100 characters long.")
+        return value
+    def validate(self, data):
+        is_premium = data.get('is_premium')
+        price      = data.get('price', 0)
+
+        if is_premium and price <= 0:
+            raise serializers.ValidationError("Premium articles must have a price.")
+        return data
+    
+    def get_preview(self, obj):
+        if len(obj.content) > 150:
+            return obj.content[:150] + "..." 
+        return obj.content  
+
+
+
+
+    
